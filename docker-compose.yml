@@ -1,0 +1,20 @@
+# version: '3.8'
+services:
+  ecg-service:
+    build: .
+    ports:
+      - "0.0.0.0:5000:5000"
+    volumes:
+      - ./ecg_data:/app/ecg_data
+      - ./static:/app/static
+      - ./templates:/app/templates
+      - ./reports:/app/reports
+      - ./app.py:/app/app.py  # 开发热更新
+      - ./data/test.dat:/tmp/uploads/test.dat:ro  #确保正确挂载
+    environment:
+      - ECG_API_SECRET=ECG_Service_Secret_2025!
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+    restart: unless-stopped
+    stdin_open: true
+    tty: true

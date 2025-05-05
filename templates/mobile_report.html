@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>心电分析报告</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            max-width: 100%;
+            margin: 0;
+            padding: 15px;
+            color: #333;
+            line-height: 1.5;
+        }
+        .header {
+            background: linear-gradient(135deg, #1890ff, #096dd9);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            text-align: center;
+            padding: 20px 15px; /* 增加内边距 */            
+        }
+        .score {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+            font-size: 28px !important;
+            margin: 15px 0 !important;
+
+        }
+        .section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .section-title {
+            color: #1890ff;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 8px;
+            margin-top: 0;
+        }
+        .metric-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+
+        }
+        .metric-item:last-child {
+            border-bottom: none;
+        }
+
+        .metric-name {
+            font-weight: 500;
+        }
+        .plot-container {
+            margin: 10px -15px;
+        }
+        .plot-container img {
+            width: 100%;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background-color: #f5f5f5;
+        }
+        .risk-high {
+            color: #f5222d;
+            font-weight: bold;
+        }
+        .risk-medium {
+            color: #fa8c16;
+        }
+        .interpretation-item {
+            margin-bottom: 8px;
+            position: relative;
+            padding-left: 15px;
+        }
+        .interpretation-item:before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #1890ff;
+        }
+        .disclaimer {
+            font-size: 12px;
+            color: #999;
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 修改头部显示部分 -->
+    <div class="header" style="text-align: center;">  <!-- 添加居中样式 -->
+        <h1 style="margin: 0;">心电分析报告</h1>
+        <div class="score" style="font-size: 28px; margin: 10px 0;">
+            {{ report.score }}/100
+        </div>
+        <div style="font-size: 18px;">评价: {{ report.evaluation }}</div>
+        <div style="font-size: 14px; color: rgba(255,255,255,0.9);">
+            报告时间: {{ report.timestamp }}
+        </div>
+    </div>
+
+    <div class="section">
+        <h2 class="section-title">核心指标</h2>
+        {% for name, value in report.core_metrics.items() %}
+        <div class="metric-item">
+            <span class="metric-name">{{ name }}</span>
+            <span>{{ value }}</span>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- 修改核心指标部分 -->
+    <div class="section">
+        <h2 class="section-title">核心指标</h2>
+        <div class="metric-item">
+            <span class="metric-name">平均心率</span>
+            <span>{{ report.core_metrics['平均心率'] }}</span>
+        </div>
+        <div class="metric-item">
+            <span class="metric-name">心率变异性(RMSSD)</span>
+            <span>{{ report.core_metrics['心率变异性'] }} 
+            <span style="color: {% if report.score >=70 %}#52c41a{% else %}#f5222d{% endif %};">
+                ({{ report.hrv_assessment }})
+            </span>
+            </span>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2 class="section-title">心电信号分析</h2>
+        <div class="plot-container">
+            <img src="{{ url_for('static', filename=plots.ecg.split('/')[-1]) }}" alt="心电信号">
+        </div>
+        <div class="plot-container">
+            <img src="{{ url_for('static', filename=plots.radar.split('/')[-1]) }}" alt="健康雷达图">
+        </div>
+    </div>
+
+    <div class="section">
+        <h2 class="section-title">疾病风险评估</h2>
+        <table>
+            <tr>
+                <th>疾病名称</th>
+                <th>风险等级</th>
+                <th>风险评分</th>
+                <th>特征描述</th>
+            </tr>
+            {% for item in report.risk_table %}
+            <tr>
+                <td>{{ item[0] }}</td>
+                <td class="{% if '极高' in item[1] %}risk-high{% elif '中' in item[1] %}risk-medium{% endif %}">
+                    {{ item[1] }}
+                </td>
+                <td>{{ item[2] }}</td>
+                <td>{{ item[3] }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="section">
+        <h2 class="section-title">专业解读</h2>
+        <p>总体心脏功能{{ "正常" if report.score >=70 else "异常" }}，{{ "有轻度压力表现" if report.score >=70 else "建议及时就医" }}</p>
+        {% for item in report.interpretations %}
+        <div class="interpretation-item">{{ item }}</div>
+        {% endfor %}
+    </div>
+
+    <div class="section">
+        <h2 class="section-title">健康建议</h2>
+        {% for item in report.recommendations %}
+        <div class="interpretation-item">{{ item }}</div>
+        {% endfor %}
+    </div>
+
+    <div class="disclaimer">
+        本报告由AI生成，仅供参考，不能替代专业医疗诊断
+    </div>
+</body>
+</html>

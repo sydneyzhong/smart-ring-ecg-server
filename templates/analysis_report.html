@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ECG 分析报告</title>
+    <style>
+        body { font-family: 'Microsoft YaHei', sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; }
+        .section { margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 20px; }
+        .plot-row { display: flex; justify-content: space-between; margin: 20px 0; }
+        .plot-container { width: 48%; text-align: center; }
+        .plot-container img { max-width: 100%; border: 1px solid #ddd; }
+        .interpretation { background: #f9f9f9; padding: 15px; border-radius: 5px; }
+        .recommendation { background: #e6f7ff; padding: 10px; margin: 5px 0; border-left: 4px solid #1890ff; }
+    </style>
+</head>
+<body>
+    <h1 style="text-align: center; color: #1890ff;">ECG 心脏健康分析报告</h1>
+    
+    <div class="section">
+        <h2>基本信息</h2>
+        <p><strong>文件：</strong> {{ basic_info.filename }}</p>
+        <p><strong>时长：</strong> {{ basic_info.duration }} 秒</p>
+        <p><strong>采样率：</strong> {{ basic_info.fs }} Hz</p>
+    </div>
+
+    <div class="section">
+        <h2>心电图信号</h2>
+        <div class="plot-container">
+            <img src="{{ url_for('static', filename=plots.ecg.split('/')[-1]) }}" alt="ECG信号">
+        </div>
+    </div>
+
+    <div class="section plot-row">
+        <div class="plot-container">
+            <h3>心脏健康雷达图</h3>
+            <img src="{{ url_for('static', filename=plots.radar.split('/')[-1]) }}" alt="健康雷达图">
+        </div>
+        <div class="plot-container">
+            <h3>疾病风险评估</h3>
+            <img src="{{ url_for('static', filename=plots.risk.split('/')[-1]) }}" alt="疾病风险">
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>专业解读</h2>
+        <div class="interpretation">
+            <h3 style="color: #1890ff;">{{ interpretation.summary }}</h3>
+            <ul>
+                {% for detail in interpretation.details %}
+                <li>{{ detail }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>健康建议</h2>
+        <div>
+            {% for rec in interpretation.recommendations %}
+            <div class="recommendation">{{ rec }}</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="section" style="text-align: center; color: #888; font-size: 0.9em;">
+        <p>报告生成时间: {{ basic_info.timestamp }}</p>
+        <p>本报告仅供参考，不能替代专业医疗建议</p>
+    </div>
+</body>
+</html>

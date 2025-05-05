@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  ecg-service:
+    build: .
+    ports:
+      - "0.0.0.0:5000:5000"
+    volumes:
+      - ./ecg_data:/tmp/uploads
+      - ./app.py:/app/app.py  # 开发时方便热更新
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
