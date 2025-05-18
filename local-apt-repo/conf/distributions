@@ -1,0 +1,7 @@
+Origin: Local-APT-Repo
+Label: Local Repository
+Codename: jammy
+Architectures: amd64
+Components: main
+Description: Local APT repository for offline Docker builds
+SignWith: no

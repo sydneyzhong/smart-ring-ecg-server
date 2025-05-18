@@ -7,11 +7,54 @@ from datetime import datetime
 from collections import defaultdict
 from matplotlib.font_manager import FontProperties
 
+import matplotlib
+matplotlib.rcParams['font.sans-serif'] = ['WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans']
+matplotlib.rcParams['axes.unicode_minus'] = False
+
+# ============ 新增的HRV分析导入（放在所有导入之后，类定义之前） ============
+try:
+    from hrvanalysis import (
+        get_time_domain_features,
+        get_frequency_domain_features,
+        get_csi_cvi_features  # 非线性分析
+    )
+except ImportError as e:
+    print(f"警告: hrv-analysis未正确安装({str(e)})，使用模拟模式")
+    
+    # 模拟函数定义
+    def get_time_domain_features(rr_intervals):
+        return {
+            "rmssd": 28.6, 
+            "sdnn": 45.2,
+            "mean_hr": 72.0,
+            "pnni_50": 12.3
+        }
+    
+    def get_frequency_domain_features(rr_intervals):
+        return {
+            "lf": 456.7,
+            "hf": 321.5,
+            "lf_hf_ratio": 1.42
+        }
+    
+    def get_csi_cvi_features(rr_intervals):
+        return {
+            "csi": 25.8,
+            "cvi": 32.1
+        }
+# ============ 新增内容结束 ============
+
 OUTPUT_DIR = "/app/reports"  # 必须与docker-compose中的挂载目录一致
 os.makedirs(OUTPUT_DIR, exist_ok=True)  # 确保目录存在
 
 class ECGProcessor:
     def __init__(self, fs=250):
+        import matplotlib
+        matplotlib.rcParams['font.family'] = 'WenQuanYi Zen Hei'  # 指定中文字体
+        matplotlib.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+        self.sample_rate = fs
+        # ...其他初始化代码...
+
         self.fs = fs
         self._set_chinese_font()
         self.healthy_ranges = {
@@ -265,6 +308,23 @@ class ECGProcessor:
             }
         }
 
+    def _calculate_heart_rate(self, r_peaks, fs):
+        """基于有效R峰计算平均心率"""
+        if len(r_peaks) < 2:
+            return 0  # 无法计算
+            
+        rr_intervals = np.diff(r_peaks) / fs  # 单位：秒
+        avg_rr = np.median(rr_intervals)  # 使用中位数抗干扰
+        
+        # 过滤异常间期（排除<0.3s或>2.0s）
+        valid_rr = [rr for rr in rr_intervals if 0.3 < rr < 2.0]
+        if len(valid_rr) < 1:
+            return 0
+            
+        heart_rate = 60 / np.mean(valid_rr)
+        print(f"[DEBUG] 心率计算中间值：平均RR={np.mean(valid_rr):.2f}s, 心率={heart_rate:.1f} BPM")  # 调试输出
+        return round(heart_rate)
+
     def _set_chinese_font(self):
         """设置中文字体"""
         try:
@@ -272,39 +332,6 @@ class ECGProcessor:
             plt.rcParams['axes.unicode_minus'] = False
         except:
             pass
-
-    def analyze_ecg_file_old(self, filepath):
-        """分析ECG文件主方法"""
-        try:
-            ecg_signal = np.fromfile(filepath, dtype=np.int16)
-            filename = os.path.basename(filepath)
-            
-            results = {
-                "basic_info": self._get_basic_info(ecg_signal, filename),
-                "wave_features": {},
-                "health_index": 0
-            }
-            
-            r_peaks = self._detect_r_peaks(ecg_signal)
-            results["wave_features"] = {
-                "r_peaks": r_peaks.tolist(),
-                **self._analyze_qrs_complex(ecg_signal, r_peaks),
-                **self._analyze_pt_waves(ecg_signal, r_peaks)
-            }
-            
-            if len(r_peaks) >= 2:
-                results["hrv_analysis"] = self._analyze_hrv(r_peaks)
-                results["arrhythmia"] = self._check_arrhythmia(r_peaks)
-                results["disease_risks"] = self._assess_disease_risks(results)
-            
-            results["health_index"] = self._calculate_health_index(results)
-            report = self.generate_report(results, filename)
-            
-            return True, results, report
-        except Exception as e:
-            return False, {"error": str(e)}, None
-
-    # 以下是您之前的所有ECG分析方法（需完整包含）：
 
 
     def _assess_disease_risks(self, results):
@@ -639,124 +666,7 @@ class ECGProcessor:
             "ecg_signal": ecg_signal.tolist()
         }
 
-    def analyze_ecg_file_old2(self, filepath):
-        if not os.path.exists(filepath):
-            return False, {"error": "文件不存在"}, None
-        if os.path.getsize(filepath) == 0:
-            return False, {"error": "空文件"}, None
-
-        """分析单个ECG文件"""
-        try:
-            # 读取.dat文件（假设是16位有符号整数）
-            ecg_signal = np.fromfile(filepath, dtype=np.int16)
-            filename = os.path.basename(filepath)
-            
-            # 执行分析
-            results = {
-                "basic_info": self._get_basic_info(ecg_signal, filename),
-                "wave_features": {},
-                "arrhythmia": {},
-                "health_index": 0,
-                "disease_risks": {}  # 新增疾病风险分析
-            }
-
-            # 1. 检测关键波形
-            r_peaks = self._detect_r_peaks(ecg_signal)
-            
-            # 2. 分析各波形特征
-            wave_features = {
-                "r_peaks": r_peaks.tolist(),
-                **self._analyze_qrs_complex(ecg_signal, r_peaks),
-                **self._analyze_pt_waves(ecg_signal, r_peaks),
-                **self._analyze_st_segment(ecg_signal, r_peaks)  # 新增ST段分析
-            }
-            results["wave_features"] = wave_features
-
-            # 3. 高级分析
-            if len(r_peaks) >= 2:
-                results["hrv_analysis"] = self._analyze_hrv(r_peaks)
-                results["arrhythmia"] = self._check_arrhythmia(r_peaks)
-                results["disease_risks"] = self._assess_disease_risks(results)  # 疾病风险评估
-            else:
-                results["hrv_analysis"] = {"error": "R峰数量不足"}
-                results["arrhythmia"] = {"error": "R峰数量不足"}
-
-            # 4. 计算健康指数
-            results["health_index"] = self._calculate_health_index(results)
-            
-            # 5. 生成报告
-            report = self.generate_report(results, filename)
-            
-            return True, results, report
-        
-        except Exception as e:
-            error_msg = f"处理文件 {os.path.basename(filepath)} 时出错: {str(e)}"
-            return False, {"error": error_msg}, None
-
-
-    def analyze_ecg_file_old3(self, filepath):
-        if not os.path.exists(filepath):
-            return False, {"error": "文件不存在"}, None
-        if os.path.getsize(filepath) == 0:
-            return False, {"error": "空文件"}, None
-
-        """分析单个ECG文件"""
-        try:
-            # 读取.dat文件（假设是16位有符号整数）
-            ecg_signal = np.fromfile(filepath, dtype=np.int16)
-            filename = os.path.basename(filepath)
-            
-            # 执行分析
-            results = {
-                "basic_info": self._get_basic_info(ecg_signal, filename),
-                "wave_features": {},
-                "arrhythmia": {},
-                "health_index": 0,
-                "disease_risks": {}  # 新增疾病风险分析
-            }
-
-            # 1. 检测关键波形
-            r_peaks = self._detect_r_peaks(ecg_signal)
-            
-            # 2. 分析各波形特征
-            wave_features = {
-                "r_peaks": r_peaks.tolist(),
-                **self._analyze_qrs_complex(ecg_signal, r_peaks),
-                **self._analyze_pt_waves(ecg_signal, r_peaks),
-                **self._analyze_st_segment(ecg_signal, r_peaks)  # 新增ST段分析
-            }
-            results["wave_features"] = wave_features
-
-            # 3. 高级分析
-            if len(r_peaks) >= 2:
-                results["hrv_analysis"] = self._analyze_hrv(r_peaks)
-                results["arrhythmia"] = self._check_arrhythmia(r_peaks)
-                results["disease_risks"] = self._assess_disease_risks(results)  # 疾病风险评估
-            else:
-                results["hrv_analysis"] = {"error": "R峰数量不足"}
-                results["arrhythmia"] = {"error": "R峰数量不足"}
-
-            # 4. 计算健康指数
-            results["health_index"] = self._calculate_health_index(results)
-            
-            # 5. 生成报告
-            html_content = self.generate_report(results, filename)
-            report_dir = '/app/reports'
-            if not os.path.exists(report_dir):
-                os.makedirs(report_dir)
-            report_file = os.path.join(report_dir, f'report_{filename}.html')
-            report = {
-                'html_report': report_file
-            }
-            # 生成HTML文件
-            with open(report['html_report'], 'w') as f:
-                f.write(html_content)
-            return True, results, report
-        
-        except Exception as e:
-            error_msg = f"处理文件 {os.path.basename(filepath)} 时出错: {str(e)}"
-            return False, {"error": error_msg}, None
-
+  
     def analyze_ecg_file(self, filepath):
         """分析ECG文件主方法（修复版）"""
         try:
@@ -781,7 +691,12 @@ class ECGProcessor:
                 "wave_features": {},
                 "health_index": 0
             }
-            
+
+            # 添加心率计算
+            duration = results["basic_info"]["duration"]
+            qrs_count = len(r_peaks)
+            results["heart_rate"] = self._calculate_heart_rate(qrs_count, duration) 
+
             r_peaks = self._detect_r_peaks(ecg_signal)
             results["wave_features"] = {
                 "r_peaks": r_peaks.tolist(),
@@ -841,15 +756,51 @@ class ECGProcessor:
         }
 
 
-    def _detect_r_peaks(self, ecg):
-        """R峰检测"""
+    def _bandpass_filter(self):
+        # 实现带通滤波逻辑（例如使用 scipy.signal）
+        from scipy.signal import butter, filtfilt
+        nyquist = 0.5 * self.sample_rate
+        low = 5 / nyquist
+        high = 15 / nyquist
+        b, a = butter(4, [low, high], btype='band')
+        filtered = filtfilt(b, a, self.signal)
+        return filtered
+
+    def _detect_r_peaks(self, ecg_signal):
+        """增强鲁棒性的R波检测"""
         try:
-            peaks, _ = find_peaks(ecg, 
-                                height=np.percentile(ecg, 95),
-                                distance=int(0.6*self.fs),
-                                prominence=0.5)
-            return peaks
-        except:
+            filtered_signal = self._bandpass_filter()  # 确保调用正确
+            # 带通滤波参数调整
+            filtered = self._bandpass_filter(ecg_signal, lowcut=8.0, highcut=15.0)
+            
+            # 动态阈值计算（基于统计分布）
+            mean_val = np.mean(filtered)
+            std_val = np.std(filtered)
+            height_threshold = mean_val + 4 * std_val
+            
+            # 主检测
+            peaks, _ = find_peaks(
+                filtered,
+                height=height_threshold,
+                distance=int(0.3 * self.fs),  # 允许更密集的R波
+                prominence=std_val * 0.8,
+                width=(int(0.04 * self.fs), int(0.12 * self.fs))
+            )
+            print(f"[DEBUG] 初步检测到 {len(peaks)} 个R峰")  # 调试输出
+            
+            # 二次验证（基于相邻RR间期）
+            valid_peaks = []
+            prev_peak = -np.inf
+            for peak in peaks:
+                if (peak - prev_peak) > 0.2 * self.fs:  # 最小间隔200ms
+                    valid_peaks.append(peak)
+                    prev_peak = peak
+                    
+            print(f"[DEBUG] 最终有效R峰数量：{len(valid_peaks)}")  # 调试输出
+            return np.array(valid_peaks)
+            
+        except Exception as e:
+            print(f"[ERROR] R峰检测失败: {str(e)}")
             return np.array([])
 
     def _analyze_qrs_complex(self, ecg, r_peaks):
@@ -939,18 +890,30 @@ class ECGProcessor:
         }
 
     def _analyze_hrv(self, r_peaks):
-        """心率变异性分析"""
-        rr_intervals = np.diff(r_peaks) / self.fs * 1000
+        """增强版HRV计算"""
+        if len(r_peaks) < 2:
+            return {"rmssd": 0, "sdnn": 0, "assessment": "数据不足"}
         
-        # 时域分析
-        rmssd = np.sqrt(np.mean(np.square(np.diff(rr_intervals))))
-        sdnn = np.std(rr_intervals)
-        
-        return {
-            "rmssd": float(rmssd),
-            "sdnn": float(sdnn),
-            "assessment": self._assess_hrv(rmssd)
-        }
+        try:
+            rr_intervals = np.diff(r_peaks) / self.fs * 1000  # 转换为毫秒
+            
+            # 异常值过滤（排除差异>30%的间隔）
+            median_rr = np.median(rr_intervals)
+            filtered_rr = [rr for rr in rr_intervals if 0.7*median_rr < rr < 1.3*median_rr]
+            
+            if len(filtered_rr) < 2:
+                return {"rmssd": 0, "sdnn": 0, "assessment": "有效数据不足"}
+                
+            rmssd = np.sqrt(np.mean(np.square(np.diff(filtered_rr))))
+            return {
+                "rmssd": float(rmssd),
+                "sdnn": float(np.std(filtered_rr)),
+                "assessment": self._assess_hrv(rmssd)
+            }
+        except Exception as e:
+            print(f"[ERROR] HRV计算失败: {str(e)}")
+            return {"rmssd": 0, "sdnn": 0, "assessment": "计算错误"}
+            
 
     def _check_arrhythmia(self, r_peaks):
         """心律失常检测"""
@@ -1313,6 +1276,18 @@ class ECGProcessor:
     def analyze_ecg_file(self, filepath):
         """分析ECG文件主方法"""
         try:
+            # 读取数据时添加字节顺序和大端模式支持
+            ecg_signal = np.fromfile(filepath, dtype='>i2')  # 假设数据是大端格式
+            
+            # 数据完整性检查
+            if len(ecg_signal) < 250 * 10:  # 至少10秒数据（假设采样率250Hz）
+                return False, {"error": "数据过短（需至少10秒）"}, None
+                
+            print(f"[DEBUG] 成功加载信号数据，长度：{len(ecg_signal)} 采样点")
+            print(f"[DEBUG] 前10个采样值：{ecg_signal[:10]}")  # 调试输出
+            
+            # 后续分析逻辑保持不变...
+
             # 1. 读取并解析数据
             ecg_signal = np.fromfile(filepath, dtype=np.int16)
             filename = os.path.basename(filepath)
@@ -1354,63 +1329,6 @@ class ECGProcessor:
             traceback.print_exc()
             return False, {"error": str(e)}, None
 
-    def _generate_html_report_old2(self, results, output_path):
-        """生成HTML格式报告"""
-        from matplotlib import pyplot as plt
-        
-        # 1. 创建ECG信号图
-        plt.figure(figsize=(15, 6))
-        plt.plot(results["basic_info"]["ecg_signal"][:1000])  # 只显示前1000个点
-        plt.title("ECG Signal Segment")
-        plt.xlabel("Samples")
-        plt.ylabel("Amplitude")
-        
-        # 2. 保存图表为临时文件
-        img_path = f"/tmp/reports/ecg_plot.png"
-        plt.savefig(img_path)
-        plt.close()
-        
-        # 3. 生成HTML内容
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>ECG Analysis Report</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                .report-section {{ margin-bottom: 30px; }}
-                img {{ max-width: 100%; }}
-            </style>
-        </head>
-        <body>
-            <h1>ECG Analysis Report</h1>
-            
-            <div class="report-section">
-                <h2>Basic Information</h2>
-                <p>File: {results["basic_info"]["filename"]}</p>
-                <p>Duration: {results["basic_info"]["duration"]:.2f} seconds</p>
-                <p>Sampling Rate: {results["basic_info"]["fs"]} Hz</p>
-            </div>
-            
-            <div class="report-section">
-                <h2>ECG Signal</h2>
-                <img src="file://{img_path}" alt="ECG Signal">
-            </div>
-            
-            <div class="report-section">
-                <h2>Analysis Results</h2>
-                <p>Heart Rate: {results["wave_features"].get("hr", "N/A")} BPM</p>
-                <p>Health Index: {results["health_index"]}/100</p>
-                <p>Arrhythmia Conclusion: {results["arrhythmia"]["conclusion"]}</p>
-            </div>
-        </body>
-        </html>
-        """
-        
-        # 4. 写入HTML文件
-        with open(output_path, 'w') as f:
-            f.write(html_content)
-            
 
     def _generate_html_report(self, results, output_path):
         """生成HTML格式报告（修复版）"""
@@ -1476,170 +1394,6 @@ class ECGProcessor:
             print(f"生成报告失败: {str(e)}")
             return False
         
-
-    def generate_html_report_old(self, report_data, output_dir):
-        """生成移动端友好HTML报告（完整修复版）"""
-        html_path = os.path.join(output_dir, "mobile_report.html")
-        
-        # 从JSON加载数据
-        with open(report_data["json_path"], 'r', encoding='utf-8') as f:
-            analysis = json.load(f)
-        
-        # 获取详细解读内容
-        detailed_interpretation = self._get_detailed_interpretation(analysis)
-        
-        # 生成疾病风险表格
-        disease_risk_table = self._generate_disease_risk_table(analysis)
-        
-        # 计算健康状态文本
-        health_status = "优秀" if analysis['health_index'] >= 80 else (
-                    "良好" if analysis['health_index'] >= 60 else "需关注")
-        
-        # 计算平均心率（防止除零错误）
-        duration = analysis['basic_info']['duration']
-        qrs_count = analysis['wave_features']['qrs_complex']['count']
-        avg_hr = (qrs_count / duration * 60) if duration > 0 else 0
-        
-        # HTML模板
-        html = f"""<!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>心电分析报告 - {analysis['basic_info']['filename']}</title>
-        <style>
-            body {{
-                font-family: 'Helvetica Neue', Arial, sans-serif;
-                line-height: 1.6;
-                color: #333;
-                max-width: 100%;
-                padding: 15px;
-                margin: 0 auto;
-            }}
-            .header {{
-                text-align: center;
-                border-bottom: 1px solid #eee;
-                padding-bottom: 15px;
-                margin-bottom: 20px;
-            }}
-            .health-score {{
-                font-size: 2.5em;
-                color: {self._get_health_color(analysis['health_index'])};
-                margin: 10px 0;
-            }}
-            .card {{
-                background: #f9f9f9;
-                border-radius: 8px;
-                padding: 15px;
-                margin-bottom: 15px;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            }}
-            .card-title {{
-                font-weight: bold;
-                margin-bottom: 10px;
-                color: #2c3e50;
-            }}
-            .chart {{
-                width: 100%;
-                height: auto;
-                margin: 0 auto;
-            }}
-            .interpretation-item {{
-                margin-bottom: 8px;
-                padding-left: 15px;
-                border-left: 3px solid #3498db;
-            }}
-            .badge {{
-                display: inline-block;
-                padding: 3px 8px;
-                border-radius: 12px;
-                font-size: 0.8em;
-                background: {self._get_health_color(analysis['health_index'])};
-                color: white;
-            }}
-            .risk-table {{
-                width: 100%;
-                border-collapse: collapse;
-                margin: 10px 0;
-            }}
-            .risk-table th, .risk-table td {{
-                padding: 8px;
-                text-align: left;
-                border-bottom: 1px solid #ddd;
-            }}
-            .risk-table th {{
-                background-color: #f2f2f2;
-            }}
-            .risk-low {{
-                color: #27ae60;
-            }}
-            .risk-medium {{
-                color: #f39c12;
-            }}
-            .risk-high {{
-                color: #e74c3c;
-            }}
-            .risk-veryhigh {{
-                color: #c0392b;
-                font-weight: bold;
-            }}
-        </style>
-    </head>
-    <body>
-
-        <div class="header">
-            <h2>❤️ 心电分析报告</h2>
-            <div class="health-score">{analysis['health_index']}/100</div>
-            <div class="badge">{health_status}</div>
-            <p>{analysis['basic_info']['timestamp']}</p>
-        </div>
-
-        <!-- 核心指标卡片 -->
-        <div class="card">
-            <div class="card-title">📊 核心指标</div>
-            <p>• 平均心率: <b>{avg_hr:.0f} 次/分钟</b></p>
-            <p>• 心率变异性(RMSSD): <b>{analysis['hrv_analysis']['rmssd']:.1f} 毫秒</b> ({analysis['hrv_analysis']['assessment']})</p>
-            <p>• 心律: <b>{analysis['arrhythmia']['conclusion']}</b></p>
-        </div>
-
-        <!-- 健康雷达图 -->
-        <div class="card">
-            <div class="card-title">📈 健康雷达图</div>
-            <img src="{os.path.basename(report_data['plots']['health_radar'])}" class="chart">
-        </div>
-
-        <!-- 疾病风险评估 -->
-        <div class="card">
-            <div class="card-title">⚠️ 疾病风险评估</div>
-            <img src="{os.path.basename(report_data['plots']['disease_risk'])}" class="chart">
-            {disease_risk_table}
-        </div>
-
-        <!-- 详细解读 -->
-        <div class="card">
-            <div class="card-title">🔍 详细解读</div>
-            {detailed_interpretation}
-        </div>
-
-        <!-- 健康建议 -->
-        <div class="card">
-            <div class="card-title">💡 健康建议</div>
-            {self._generate_recommendations(analysis).replace('•', '•')}
-        </div>
-
-        <!-- 免责声明 -->
-        <div class="card" style="background-color: #fff8f8;">
-            <div class="card-title">⚠️ 重要声明</div>
-            <p>本报告基于算法分析生成，仅供参考，不能替代专业医疗诊断。如有任何健康疑虑，请咨询执业医师。</p>
-        </div>
-    </body>
-    </html>"""
-        
-        # 保存HTML文件
-        with open(html_path, 'w', encoding='utf-8') as f:
-            f.write(html)
-        
-        return html_path
 
     def _generate_disease_risk_table(self, analysis):
         """生成疾病风险表格（新增）"""

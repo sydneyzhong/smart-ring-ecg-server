@@ -1,10 +1,12 @@
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.DS_Store
+*.py[cod]
 .env
 venv/
-static/*.png
-reports/
+*.log
+*.sqlite
+*.tar.gz
+.DS_Store
+
+# Docker相关忽略项
+docker-images/
 

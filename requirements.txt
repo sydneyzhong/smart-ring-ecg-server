@@ -1,8 +1,15 @@
-flask==2.0.0
-gunicorn==20.1.0
-numpy==1.21.2
-scipy==1.7.1
-matplotlib==3.4.3
-werkzeug==2.0.2
-#numpy>=1.21.0
-#matplotlib>=3.4.0
+# flask==2.0.0
+# gunicorn==20.1.0
+# numpy==1.21.2
+# scipy==1.7.1
+# matplotlib==3.4.3
+# werkzeug==2.0.2
+# hrv-analysis==1.0.4
+# 使用兼容性更好的版本组合
+flask==2.0.3
+gunicorn==21.2.0
+numpy==1.21.6  # 指定兼容Python 3.9的版本
+scipy==1.7.3
+matplotlib==3.5.3  # 支持旧版Python
+werkzeug==2.0.3
+hrv-analysis==1.0.4

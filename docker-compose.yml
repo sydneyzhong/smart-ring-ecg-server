@@ -1,20 +1,31 @@
-# version: '3.8'
+version: '3.8'
+
 services:
-  ecg-service:
+  ecg-server:
     build: .
+    image: smart-ring-ecg-server:latest
+    container_name: ecg-server
+    restart: always
     ports:
-      - "0.0.0.0:5000:5000"
+      - "8000:5000"
+    working_dir: /app  # 新增
     volumes:
-      - ./ecg_data:/app/ecg_data
-      - ./static:/app/static
-      - ./templates:/app/templates
-      - ./reports:/app/reports
-      - ./app.py:/app/app.py  # 开发热更新
-      - ./data/test.dat:/tmp/uploads/test.dat:ro  #确保正确挂载
+      - /home/ubuntu/smart-ring-ecg-server/data:/app/data:rw  # 修改为rw
+      - /home/ubuntu/smart-ring-ecg-server/ecg_data:/app/ecg_data
+      - ./static:/app/static  # 新增静态文件挂载
     environment:
-      - ECG_API_SECRET=ECG_Service_Secret_2025!
-      - FLASK_ENV=development
-      - FLASK_DEBUG=1
-    restart: unless-stopped
-    stdin_open: true
-    tty: true
+      - ECG_SERVER_PORT=8000
+      - ECG_SERVER_WORKERS=4
+      - ECG_DATA_PATH=/app/data/test.dat
+      - TZ=Asia/Shanghai  # 新增
+      - PYTHONUNBUFFERED=1  # 新增
+    ulimits:  # 新增
+      nofile:
+        soft: 65535
+        hard: 65535
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # 添加启动等待时间

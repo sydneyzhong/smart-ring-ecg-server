@@ -109,27 +109,43 @@ def calculate_health_score(results):
 
 @app.route('/analyze_and_show')
 def analyze_and_show():
-    try:
-        # 获取分析结果
-        processor = ECGProcessor()
-        _, results, _ = processor.analyze_ecg_file("/tmp/uploads/test.dat")
-        
-        # 生成移动端报告数据
-        report_data = generate_mobile_report_data(results)
-        
-        # 生成图表
-        generate_ecg_plot(results['basic_info']['ecg_signal'][:1000])
-        generate_radar_chart(results)
-        
-        return render_template('mobile_report.html',
-                            report=report_data,
-                            plots={
-                                'ecg': 'static/ecg_mobile.png',
-                                'radar': 'static/radar_mobile.png'
-                            })
+    # 新增容器内多路径检查
+    possible_paths = [
+        '/app/data/test.dat',          # Docker映射路径
+        '/tmp/uploads/test.dat',       # 临时上传路径
+        '/home/ubuntu/smart-ring-ecg-server/data/test.dat'  # 宿主机路径
+    ]
     
+    valid_file = None
+    for path in possible_paths:
+        if os.path.exists(path) and os.path.getsize(path) > 1024:  # 文件需大于1KB
+            valid_file = path
+            break
+            
+    if not valid_file:
+        return "未找到有效数据文件", 404
+        
+    try:
+        processor = ECGProcessor()
+        success, results, _ = processor.analyze_ecg_file(valid_file)
+        
+        # 添加心率验证
+        heart_rate = results.get('heart_rate')
+        if not heart_rate or heart_rate < 30 or heart_rate > 200:
+            return "心率计算异常，请检查输入数据", 500
+            
+        # 生成简化版报告
+        return f"""
+        <h2>ECG分析结果</h2>
+        <p>文件: {os.path.basename(test_file)}</p>
+        #<p>心率: {results.get('heart_rate', 'N/A')} BPM</p>
+        <p>心率: {results.get('heart_rate', results.get('wave_features', {}).get('qrs_complex', {}).get('count', 'N/A'))} BPM</p>
+        <p>HRV-RMSSD: {results.get('hrv_analysis', {}).get('rmssd', 'N/A')} ms</p>
+        <p>分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        """
+        
     except Exception as e:
-        return f"错误: {str(e)}", 500
+        return f"服务器错误: {str(e)}", 500
 
 def generate_ecg_plot(signal):
     """生成移动端优化的ECG图"""
@@ -172,9 +188,17 @@ def index():
         <li>GET /api/health - Health check</li>
     </ul>
     """
-app.route('/static/<path:filename>')
-def serve_static(filename):
-    return send_from_directory('/app/static', filename)
+# 确保静态路由正确定义
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory(
+        os.path.join(app.root_path, 'static'),
+        filename,
+        mimetype='image/png' if filename.endswith('.png') else None)
+
+# app.route('/static/<path:filename>')
+# def serve_static(filename):
+#     return send_from_directory('/app/static', filename)
 
 @app.route('/upload', methods=['GET'])
 def upload_form():
